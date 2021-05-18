@@ -1,4 +1,5 @@
 import getpass
+import os
 import subprocess
 import sys
 import tempfile
@@ -64,10 +65,18 @@ def open_shell(args: Namespace) -> None:
     _open_shell(args.master, shell, args.ssh_opts)
 
 
-def _open_shell(master: str, shell: Dict[str, Any], additional_opts: List[str]) -> None:
-    with tempfile.NamedTemporaryFile("w") as fp:
+@authentication_required
+def show_vs_command(args: Namespace) -> None:
+    shell = api.get(args.master, "api/v1/shells/{}".format(args.shell_id)).json()["shell"]
+    check_eq(shell["state"], "STATE_RUNNING", "Shell must be in a running state")
+    _open_shell(args.master, shell, args.ssh_opts, True)
+
+
+def _open_shell(master: str, shell: Dict[str, Any], additional_opts: List[str], print_only=False) -> None:
+    with open("/tmp/key", "w") as fp:
         fp.write(shell["privateKey"])
         fp.flush()
+        os.chmod("/tmp/key", 0o600)
         check_len(shell["addresses"], 1, "Cannot find address for shell")
         _, port = shell["addresses"][0]["host_ip"], shell["addresses"][0]["host_port"]
 
@@ -98,6 +107,10 @@ def _open_shell(master: str, shell: Dict[str, Any], additional_opts: List[str]) 
             "{}@{}".format(username, shell["id"]),
             *additional_opts,
         ]
+
+        if print_only:
+            print("'"+"' '".join(cmd)+"'")
+            return
 
         subprocess.run(cmd)
 
@@ -132,8 +145,14 @@ args_description = [
                 help="name of template to apply to the shell configuration"),
             Arg("-d", "--detach", action="store_true",
                 help="run in the background and print the ID"),
+            Arg("--show-vs-command", action="store_true",
+                help="show IDE shell command when starting the shell"),
         ]),
         Cmd("open", open_shell, "open an existing shell", [
+            Arg("shell_id", help="shell ID"),
+            Arg("ssh_opts", nargs="*", help="additional SSH options when connecting to the shell"),
+        ]),
+        Cmd("show_vs_command", show_vs_command, "only print the IDE shell command", [
             Arg("shell_id", help="shell ID"),
             Arg("ssh_opts", nargs="*", help="additional SSH options when connecting to the shell"),
         ]),
